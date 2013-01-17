@@ -204,7 +204,7 @@ public class MainActivity extends MapActivity {
 						GraphHopper tmpHopp = new GraphHopper().forAndroid();
 						tmpHopp.contractionHierarchies(true);
 						tmpHopp.load(GRAPH_FOLDER);
-						log("found graph with " + tmpHopp.getGraph().getNodes()
+						log("found graph with " + tmpHopp.getGraph().nodes()
 								+ " nodes");
 						hopper = tmpHopp;
 					}
