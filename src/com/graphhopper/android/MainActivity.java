@@ -45,7 +45,6 @@ import com.graphhopper.GraphHopperWeb;
 import com.graphhopper.util.Helper;
 import com.graphhopper.util.PointList;
 import com.graphhopper.util.StopWatch;
-import com.graphhopper.util.shapes.GHPoint;
 
 public class MainActivity extends MapActivity {
 
@@ -260,7 +259,6 @@ public class MainActivity extends MapActivity {
 
 			protected GHResponse doInBackground(Void... v) {
 				StopWatch sw = new StopWatch().start();
-				log("query graph");
 				GHRequest req = new GHRequest(fromLat, fromLon, toLat, toLon)
 						.algorithm("dijkstrabi").minPathPrecision(1);
 				GHResponse resp = hopper.route(req);

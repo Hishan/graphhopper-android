@@ -1,12 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.graphhopper.android"
     android:versionCode="1"
-    android:versionName="1.0" >
+    android:versionName="0.1" >
 
     <!-- mapsforge cache  -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     
-    <!-- ONLY necessary if you want to use graphhopper web service -->
+    <!-- ONLY necessary if you want to use the graphhopper web service -->
     <uses-permission android:name="android.permission.INTERNET" /> 
 
     <uses-sdk

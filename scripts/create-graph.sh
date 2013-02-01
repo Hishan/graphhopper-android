@@ -1,5 +1,6 @@
 #!/bin/bash
-
+BASE=`dirname $0`
+cd $BASE/..
 vers=`$JAVA_HOME/bin/java -version 2>&1 | grep "java version" | awk '{print $3}' | tr -d \"`
 echo "using java $vers from $JAVA_HOME"
 
