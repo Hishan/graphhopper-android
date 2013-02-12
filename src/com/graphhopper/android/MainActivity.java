@@ -295,6 +295,7 @@ public class MainActivity extends MapActivity {
 					return;
 				}
 				setContentView(mapView);
+				// TODO sometimes the center is wrong
 				mapView.getOverlays().clear();
 				mapView.getOverlays().add(pathOverlay);
 				prepareGraph();
@@ -324,7 +325,7 @@ public class MainActivity extends MapActivity {
 
 			protected void onPostExecute(Path o) {
 				if (error == null) {
-					logUser("Finished loading graph");
+					logUser("Finished loading graph. Touch to route.");
 				} else {
 					logUser("An error happend while creating graph:"
 							+ error.getMessage());
