@@ -1,9 +1,12 @@
 package com.graphhopper.android;
 
 import java.io.File;
-import java.io.IOException;
+import java.io.FileReader;
+import java.io.FilenameFilter;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.mapsforge.android.maps.MapActivity;
 import org.mapsforge.android.maps.MapView;
@@ -15,8 +18,6 @@ import org.mapsforge.android.maps.overlay.Polyline;
 import org.mapsforge.core.model.GeoPoint;
 import org.mapsforge.map.reader.header.FileOpenResult;
 
-import android.app.AlertDialog;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.DashPathEffect;
@@ -33,15 +34,19 @@ import android.view.GestureDetector.SimpleOnGestureListener;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.MotionEvent;
+import android.view.View;
+import android.view.View.OnClickListener;
 import android.view.Window;
+import android.widget.ArrayAdapter;
+import android.widget.Button;
 import android.widget.EditText;
+import android.widget.Spinner;
 import android.widget.Toast;
 
 import com.graphhopper.GHRequest;
 import com.graphhopper.GHResponse;
 import com.graphhopper.GraphHopper;
 import com.graphhopper.GraphHopperAPI;
-import com.graphhopper.GraphHopperWeb;
 import com.graphhopper.util.Helper;
 import com.graphhopper.util.PointList;
 import com.graphhopper.util.StopWatch;
@@ -52,16 +57,22 @@ public class MainActivity extends MapActivity {
 	private GraphHopperAPI hopper;
 	private GeoPoint start;
 	private GeoPoint end;
+	private Spinner localSpinner;
+	private Button localButton;
+	private Spinner remoteSpinner;
+	private Button remoteButton;
 	private ListOverlay pathOverlay = new ListOverlay();
-	private volatile boolean prepareGraphInProgress = false;
+	private volatile boolean prepareInProgress = false;
 	private volatile boolean shortestPathRunning = false;
 	private String currentArea = "berlin";
-	private static String GRAPH_FOLDER;
-	private static String MAP_FILE;
-	private SimpleOnGestureListener listener = new SimpleOnGestureListener() {
+	private String fileListURL = "https://graphhopper.googlecode.com/files/files.txt";
+	private String downloadURL;
+	private String mapsFolder;
+	private String mapFile;
+	private SimpleOnGestureListener gestureListener = new SimpleOnGestureListener() {
 		// why does this fail? public boolean onDoubleTap(MotionEvent e) {};
 		public boolean onSingleTapConfirmed(MotionEvent motionEvent) {
-			if (!initGraph()) {
+			if (!initFiles()) {
 				return false;
 			}
 
@@ -98,12 +109,14 @@ public class MainActivity extends MapActivity {
 			return true;
 		}
 	};
-	private GestureDetector gestureDetector = new GestureDetector(listener);
+	private GestureDetector gestureDetector = new GestureDetector(
+			gestureListener);	
 
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		requestWindowFeature(Window.FEATURE_NO_TITLE);
 		super.onCreate(savedInstanceState);
+		setContentView(R.layout.main);
 		mapView = new MapView(this) {
 			@Override
 			public boolean onTouchEvent(MotionEvent event) {
@@ -118,95 +131,191 @@ public class MainActivity extends MapActivity {
 
 		final EditText input = new EditText(this);
 		input.setText(currentArea);
-		new AlertDialog.Builder(this)
-				.setTitle("Routing area")
-				.setMessage("On which area you want to route?")
-				.setView(input)
-				.setPositiveButton("Ok", new DialogInterface.OnClickListener() {
-					public void onClick(DialogInterface dialog, int whichButton) {
-						initFiles(input.getText().toString());
-					}
-				})
-				.setNegativeButton("Cancel",
-						new DialogInterface.OnClickListener() {
-							public void onClick(DialogInterface dialog,
-									int whichButton) {
-								initFiles(currentArea);
-							}
-						}).show();
+		mapsFolder = Environment.getExternalStorageDirectory()
+				.getAbsolutePath() + "/graphhopper/maps/";
+		localSpinner = (Spinner) findViewById(R.id.locale_area_spinner);
+		localButton = (Button) findViewById(R.id.locale_button);
+		remoteSpinner = (Spinner) findViewById(R.id.remote_area_spinner);
+		remoteButton = (Button) findViewById(R.id.remote_button);
+		// TODO get user confirmation to download
+		// if (AndroidHelper.isFastDownload(this))
+		chooseAreaFromRemote();
+		chooseAreaFromLocal();
 	}
 
-	private void initFiles(String area) {
-		if (hopper != null && currentArea.equals(area)) {
-			return;
-		}
-		currentArea = area;
-
-		GRAPH_FOLDER = Environment.getExternalStorageDirectory()
-				.getAbsolutePath() + "/graphhopper/maps/" + area;
-
-		// TODO make unzipping async!
-		File compressed = new File(GRAPH_FOLDER + ".ghz");
-		if (compressed.exists() && !compressed.isDirectory()) {
-			try {
-				boolean deleteZipped = true;
-				logUser("now unzipping");
-				Helper.unzip(compressed.getAbsolutePath(),
-						GRAPH_FOLDER + "-gh", deleteZipped);
-			} catch (IOException ex) {
-				logUser("Couldn't extract graph files " + ex.getMessage());
-			}
-		}
-
-		MAP_FILE = Environment.getExternalStorageDirectory().getAbsolutePath()
-				+ "/graphhopper/maps/" + area + "-gh/" + area + ".map";
-		if (!new File(MAP_FILE).exists()) {
-			MAP_FILE = Environment.getExternalStorageDirectory()
-					.getAbsolutePath() + "/graphhopper/maps/" + area + ".map";
-		}
-
-		FileOpenResult fileOpenResult = mapView.setMapFile(new File(MAP_FILE));
-		if (!fileOpenResult.isSuccess()) {
-			logUser(fileOpenResult.getErrorMessage());
-			finish();
-			return;
-		}
-		setContentView(mapView);
-		mapView.getOverlays().clear();
-		mapView.getOverlays().add(pathOverlay);
-		initGraph();
-	}
-
-	private boolean initGraph() {
+	private boolean initFiles() {
 		// only return true if already loaded
 		if (hopper != null) {
 			return true;
 		}
-		if (prepareGraphInProgress) {
-			logUser("Graph preparation still in progress");
+		if (prepareInProgress) {
+			logUser("Preparation still in progress");
 			return false;
 		}
-		prepareGraphInProgress = true;
-		logUser("loading graph (" + Helper.VERSION + "|" + Helper.VERSION_FILE
-				+ ") ... ");
+		prepareInProgress = true;
+		installMapAndGraph();
+		return false;
+	}
+
+	private void chooseAreaFromLocal() {
+		List<String> nameList = new ArrayList<String>();
+		for (String file : new File(mapsFolder).list(new FilenameFilter() {
+			@Override
+			public boolean accept(File dir, String filename) {
+				return filename != null
+						&& (filename.endsWith(".ghz") || filename
+								.endsWith("-gh"));
+			}
+		})) {
+			nameList.add(file);
+		}
+		if (nameList.isEmpty())			
+			return;
+		
+		chooseArea(localButton, localSpinner, nameList, new MySpinnerListener() {
+			@Override
+			public void onSelect(String selected) {
+				initFiles();
+			}
+		});
+	}
+
+	private void chooseAreaFromRemote() {
+		try {
+			String filesList = mapsFolder + "files.txt";
+			AndroidHelper.download(fileListURL, filesList);
+			List<String> nameList = AndroidHelper.readFile(new FileReader(
+					filesList));
+			chooseArea(remoteButton, remoteSpinner, nameList, new MySpinnerListener() {
+				@Override
+				public void onSelect(String selected) {
+					if (selected == null
+							|| new File(mapsFolder + currentArea + ".ghz")
+									.exists()
+							|| new File(mapsFolder + currentArea + "-gh")
+									.exists()) {
+						downloadURL = null;
+					} else
+						downloadURL = selected;					
+					initFiles();
+				}
+			});
+		} catch (Exception ex) {
+			logUser("Problem while fetching remote area list: " + ex.getMessage());			
+		}
+	}
+
+	private void chooseArea(Button button, final Spinner spinner, List<String> nameList,
+			final MySpinnerListener mylistener) {
+		final Map<String, String> nameToFullName = new LinkedHashMap<String, String>(
+				nameList.size());
+		for (String fullName : nameList) {
+			String tmp = Helper.pruneFileEnd(fullName);
+			if (tmp.endsWith("-gh"))
+				tmp = tmp.substring(0, tmp.length() - 3);
+			tmp = AndroidHelper.getFileName(tmp);
+			nameToFullName.put(tmp, fullName);
+		}
+		nameList.clear();
+		nameList.addAll(nameToFullName.keySet());
+		ArrayAdapter<String> spinnerArrayAdapter = new ArrayAdapter<String>(
+				this, android.R.layout.simple_spinner_dropdown_item, nameList);
+		spinner.setAdapter(spinnerArrayAdapter);
+		button.setOnClickListener(new OnClickListener() {
+			@Override
+			public void onClick(View v) {
+				Object o = spinner.getSelectedItem();
+				if (o != null && o.toString().length() > 0) {
+					currentArea = o.toString();
+					mylistener.onSelect(nameToFullName.get(currentArea));
+				} else
+					mylistener.onSelect(null);
+			}
+		});
+		// trigger spinner popup
+		// spinner.performClick();
+	}
+
+	public interface MySpinnerListener {
+		void onSelect(String selected);
+	}
+
+	/**
+	 * Download & Unzipping
+	 */
+	void installMapAndGraph() {
+		if (downloadURL != null)
+			logUser("Downloading " + downloadURL);
+
+		new AsyncTask<Void, Void, Object>() {
+			Throwable error;
+
+			protected Object doInBackground(Void... _ignore) {
+				if (downloadURL != null) {
+					final String localFile = mapsFolder
+							+ AndroidHelper.getFileName(downloadURL);
+					try {
+						log("downloading " + downloadURL + " to " + localFile);
+						AndroidHelper.download(downloadURL, localFile);
+					} catch (Throwable t) {
+						error = t;
+						return null;
+					}
+				}
+
+				File compressed = new File(mapsFolder + currentArea + ".ghz");
+				if (compressed.exists() && !compressed.isDirectory()) {
+					try {
+						boolean deleteZipped = true;
+						Helper.unzip(compressed.getAbsolutePath(), mapsFolder
+								+ currentArea + "-gh", deleteZipped);
+					} catch (Exception ex) {
+						error = ex;
+					}
+				}
+				return null;
+			}
+
+			protected void onPostExecute(Object _ignore) {
+				if (error == null) {
+					logUser("Finished downloading&unzipping. Now loading map.");
+				} else {
+					logUser("An error happend while retrieving maps:"
+							+ error.getMessage());
+					return;
+				}
+
+				mapFile = mapsFolder + currentArea + "-gh/" + currentArea
+						+ ".map";
+				FileOpenResult fileOpenResult = mapView.setMapFile(new File(
+						mapFile));
+				if (!fileOpenResult.isSuccess()) {
+					logUser(fileOpenResult.getErrorMessage());
+					// finish();
+					return;
+				}
+				setContentView(mapView);
+				mapView.getOverlays().clear();
+				mapView.getOverlays().add(pathOverlay);
+				prepareGraph();
+			}
+		}.execute();
+	}
+
+	void prepareGraph() {
+		logUser("loading graph (" + Helper.VERSION + "|"
+				+ Helper.VERSION_FILE + ") ... ");
 		new AsyncTask<Void, Void, Path>() {
 			Throwable error;
 
 			protected Path doInBackground(Void... v) {
 				try {
-					boolean web = false;
-					if (web) {
-						// web access to the graphhopper service!
-						hopper = new GraphHopperWeb();
-						hopper.load("http://217.92.216.224:8080/api");
-					} else {
-						GraphHopper tmpHopp = new GraphHopper().forAndroid();
-						tmpHopp.contractionHierarchies(true);
-						tmpHopp.load(GRAPH_FOLDER);
-						log("found graph with " + tmpHopp.getGraph().nodes()
-								+ " nodes");
-						hopper = tmpHopp;
-					}
+					GraphHopper tmpHopp = new GraphHopper().forAndroid();
+					tmpHopp.contractionHierarchies(true);
+					tmpHopp.load(mapsFolder + currentArea);
+					log("found graph with " + tmpHopp.getGraph().nodes()
+							+ " nodes");
+					hopper = tmpHopp;
 				} catch (Throwable t) {
 					error = t;
 				}
@@ -220,10 +329,9 @@ public class MainActivity extends MapActivity {
 					logUser("An error happend while creating graph:"
 							+ error.getMessage());
 				}
-				prepareGraphInProgress = false;
+				prepareInProgress = false;
 			}
 		}.execute();
-		return false;
 	}
 
 	private Polyline createPolyline(GHResponse response) {

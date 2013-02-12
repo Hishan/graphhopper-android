@@ -6,8 +6,10 @@
     <!-- mapsforge cache  -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     
-    <!-- ONLY necessary if you want to use the graphhopper web service -->
-    <uses-permission android:name="android.permission.INTERNET" /> 
+    <!-- necessary to easily download maps via wifi -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" /> 
+    
 
     <uses-sdk
         android:minSdkVersion="8"

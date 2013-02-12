@@ -9,3 +9,4 @@ bin/
 graph-*/
 *-gh/
 loc2idIndex/
+scripts/googlecode_upload.py
